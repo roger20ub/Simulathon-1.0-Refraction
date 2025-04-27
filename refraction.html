@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Fluid Refraction and Reflection Simulation (Mirror Toggle)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+<style>
+    /* Catppuccin Mocha Palette */
+    :root {
+        --ctp-mocha-base: #1e1e2e;
+        --ctp-mocha-crust: #313244; /* Air background */
+        --ctp-mocha-mantle: #2b2b3b; /* Control background */
+        --ctp-mocha-text: #cdd6f4;   /* Control text */
+        --ctp-mocha-subtext1: #bac2de; /* Boundary line / Info text */
+        --ctp-mocha-yellow: #f9e2af; /* Rays */
+        --ctp-mocha-blue: #89b4fa;   /* Fluid background */
+        --ctp-mocha-lavender: #b4befe; /* Mirrors */
+        --ctp-mocha-red: #f38ba8;    /* Light source */
+        --ctp-mocha-surface0: #45475a; /* Interaction border/hover / Separator */
+    }
+
+    body {
+        margin: 0;
+        overflow: hidden;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background-color: var(--ctp-mocha-base);
+        color: var(--ctp-mocha-text);
+        font-family: 'Roboto', sans-serif;
+    }
+    canvas {
+        border: 1px solid var(--ctp-mocha-subtext1);
+        background-color: var(--ctp-mocha-crust);
+    }
+    .controls {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: var(--ctp-mocha-mantle);
+        padding: 15px;
+        border-radius: 8px;
+        font-size: 14px;
+        color: var(--ctp-mocha-text);
+        user-select: none;
+        pointer-events: auto;
+        z-index: 10;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        font-family: inherit;
+        min-width: 280px; /* Ensure enough width for controls */
+    }
+
+    .controls label {
+        display: inline-block;
+        width: 85px;
+        color: var(--ctp-mocha-text);
+        margin-right: 5px;
+        vertical-align: middle;
+        font-weight: 500;
+    }
+     .controls input[type="number"],
+     .controls input[type="checkbox"],
+     .controls input[type="range"] {
+        margin-left: 5px;
+        margin-bottom: 10px;
+        vertical-align: middle;
+     }
+     .controls input[type="number"] {
+        background-color: var(--ctp-mocha-crust);
+        border: 1px solid var(--ctp-mocha-surface0);
+        color: var(--ctp-mocha-text);
+        padding: 5px;
+        border-radius: 4px;
+        width: 70px;
+        font-family: inherit;
+        -moz-appearance: textfield; appearance: textfield;
+    }
+     .controls input[type="number"]::-webkit-outer-spin-button,
+     .controls input[type="number"]::-webkit-inner-spin-button {
+         -webkit-appearance: none; margin: 0;
+     }
+    .controls input[type="range"] { width: 120px; cursor: pointer; }
+
+     .controls .info-text { font-size: 12px; color: var(--ctp-mocha-subtext1); margin-bottom: 10px; line-height: 1.4; }
+     .controls .separator { height: 1px; background-color: var(--ctp-mocha-surface0); margin: 12px 0; }
+
+     /* Checkbox specific alignment */
+     .controls .checkbox-container {
+         display: block; /* Place checkboxes on new lines */
+         margin-bottom: 10px;
+     }
+      .controls .checkbox-container input[type="checkbox"] {
+          margin-left: 0;
+          margin-right: 5px; /* Space between checkbox and label */
+      }
+      .controls .checkbox-container label {
+          width: auto; /* Allow checkbox labels to fit content */
+      }
+
+     /* Container for slider */
+     .slider-container { display: flex; align-items: center; margin-bottom: 10px; }
+     .slider-container label { width: 85px; margin-right: 5px; flex-shrink: 0; }
+     .slider-container input[type="range"] { flex-grow: 1; margin: 0 8px; }
+     .slider-container span { min-width: 30px; text-align: right; font-weight: 500; color: var(--ctp-mocha-subtext1); }
+
+</style>
+</head>
+<body>
+
+<canvas id="refractionCanvas" width="900" height="600"></canvas>
+
+<div class="controls">
+    <div class="info-text">
+        Drag the <span style="color: #f38ba8;">red circle</span> (source).<br>
+        <span id="mirror-drag-info">Drag <span style="color: #b4befe;">purple mirrors</span> to move/rotate.</span><br> Rays are <span style="color: #f9e2af;">yellow</span>.
+    </div>
+    <div class="separator"></div>
+    <label for="n1-input">Index (Air):</label>
+    <input type="number" id="n1-input" value="1.0" step="0.01" min="1.0">
+    <br>
+    <label for="n2-input">Index (Fluid):</label>
+    <input type="number" id="n2-input" value="1.5" step="0.01" min="1.0">
+    <br>
+    <div class="separator"></div>
+    <div class="slider-container">
+        <label for="rays-slider">Num Rays:</label>
+        <input type="range" id="rays-slider" min="10" max="360" step="1" value="120">
+        <span id="rays-value-display">120</span>
+    </div>
+    <div> <label for="wave-speed-input">Wave Speed:</label>
+        <input type="number" id="wave-speed-input" value="0.008" step="0.001" min="0" max="0.1">
+    </div>
+     <div class="separator"></div>
+    <div class="checkbox-container">
+        <input type="checkbox" id="mirrors-toggle" checked> <label for="mirrors-toggle">Enable Mirrors</label>
+    </div>
+     <div class="checkbox-container">
+        <input type="checkbox" id="wave-toggle">
+        <label for="wave-toggle">Wavy Water</label>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('refractionCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const WIDTH = canvas.width;
+    const HEIGHT = canvas.height;
+    const FLUID_Y = HEIGHT / 2;
+
+    // --- Simulation Parameters ---
+    let N_AIR = 1.0;
+    let N_FLUID = 1.5;
+    let NUM_RAYS = 120;
+    let isWavy = false;
+    let waveSpeed = 0.008;
+    let areMirrorsEnabled = true; // NEW: Toggle for mirrors
+
+    // Get references to input elements
+    const n1Input = document.getElementById('n1-input');
+    const n2Input = document.getElementById('n2-input');
+    const waveToggle = document.getElementById('wave-toggle');
+    const waveSpeedInput = document.getElementById('wave-speed-input');
+    const raysSlider = document.getElementById('rays-slider');
+    const raysValueDisplay = document.getElementById('rays-value-display');
+    const mirrorsToggle = document.getElementById('mirrors-toggle'); // NEW: Mirror toggle element
+    const mirrorDragInfo = document.getElementById('mirror-drag-info'); // Info text span
+
+    // --- Wave Parameters ---
+    const NUM_SURFACE_SEGMENTS = 150;
+    const waterSurfacePoints = [];
+    const waveAmplitude = 20;
+    const waveFrequency = 0.025;
+    let wavePhase = 0;
+
+    // Set initial input values
+    n1Input.value = N_AIR.toFixed(2);
+    n2Input.value = N_FLUID.toFixed(2);
+    waveToggle.checked = isWavy;
+    waveSpeedInput.value = waveSpeed.toFixed(3);
+    raysSlider.value = NUM_RAYS;
+    raysValueDisplay.textContent = NUM_RAYS;
+    mirrorsToggle.checked = areMirrorsEnabled; // Set initial state of mirror toggle
+
+
+    // --- Core Simulation Variables ---
+    let sourceX = WIDTH/4; let sourceY = HEIGHT/4;
+    const RAY_LENGTH_LIMIT = Math.max(WIDTH, HEIGHT)*1.8;
+    const MAX_REFLECTIONS = 8;
+    const INTERSECTION_EPSILON = 1e-6;
+    const InteractionState = { IDLE: 'idle', DRAGGING_SOURCE: 'dragging_source', DRAGGING_MIRROR: 'dragging_mirror', ROTATING_MIRROR: 'rotating_mirror' };
+    let currentInteractionState = InteractionState.IDLE;
+    let selectedMirrorIndex = -1;
+    let dragStartMouseX, dragStartMouseY, dragOffsetX, dragOffsetY, dragMirrorOffsetX, dragMirrorOffsetY, mirrorStartAngle, dragStartMouseAngleFromCenter, rotatingEndpoint = null;
+    const SOURCE_RADIUS = 8;
+    const MIRROR_SELECT_THRESHOLD_SQ = 14*14;
+    const ENDPOINT_SELECT_THRESHOLD_SQ = 20*20;
+    let mirrors = [ { center: { x: WIDTH*0.4, y: HEIGHT*0.7 }, length: 150, angle: Math.PI/6 }, { center: { x: WIDTH*0.7, y: HEIGHT*0.4 }, length: 100, angle: -Math.PI/4 }, { center: { x: WIDTH*0.2, y: HEIGHT*0.6 }, length: 120, angle: Math.PI/2 }, { center: { x: WIDTH*0.8, y: HEIGHT*0.8 }, length: 180, angle: 0 }, ];
+
+    // --- Colors (Direct Hex Codes) ---
+    const COLOR_BACKGROUND_AIR = '#313244'; const COLOR_BACKGROUND_FLUID = 'rgba(137, 180, 250, 0.4)'; const COLOR_BOUNDARY = '#bac2de'; const COLOR_RAYS = '#f9e2af'; const COLOR_MIRRORS = '#b4befe'; const COLOR_SOURCE = '#f38ba8'; const COLOR_INTERACTION_BORDER = '#45475a';
+
+    // --- Vector Math Helper Functions (Unchanged) ---
+    function normalize(v) { const len=Math.sqrt(v.x*v.x + v.y*v.y); if (len === 0) return {x:0, y:0}; return {x: v.x/len, y: v.y/len}; }
+    function dot(v1, v2) { return v1.x*v2.x + v1.y*v2.y; }
+    function subtract(v1, v2) { return {x: v1.x-v2.x, y: v1.y-v2.y}; }
+    function scale(v, s) { return {x: v.x*s, y: v.y*s}; }
+    function add(v1, v2) { return {x: v1.x+v2.x, y: v1.y+v2.y}; }
+    function distSq(p1, p2) { const dx=p1.x-p2.x; const dy=p1.y-p2.y; return dx*dx + dy*dy; }
+    function distToSegmentSquared(p, a, b) { const ab=subtract(b, a); const ap=subtract(p, a); const lenSq=dot(ab, ab); if (lenSq < INTERSECTION_EPSILON) return dot(ap, ap); const t=Math.max(0, Math.min(1, dot(ap, ab)/lenSq)); const closest=add(a, scale(ab, t)); const dp=subtract(p, closest); return dot(dp, dp); }
+
+    // --- Geometry Helper Functions (Unchanged) ---
+    function updateMirrorEndpoints(mirror) { const halfLen=mirror.length/2; const angle=mirror.angle; const cosA=Math.cos(angle); const sinA=Math.sin(angle); mirror.p1={x: mirror.center.x - halfLen*cosA, y: mirror.center.y - halfLen*sinA}; mirror.p2={x: mirror.center.x + halfLen*cosA, y: mirror.center.y + halfLen*sinA}; }
+    mirrors.forEach(updateMirrorEndpoints);
+
+    // --- Update Wave Surface Function (Unchanged) ---
+    function updateWaterSurface(elapsedTime) { wavePhase = waveSpeed * elapsedTime; waterSurfacePoints.length = 0; for (let i = 0; i <= NUM_SURFACE_SEGMENTS; i++) { const x = (WIDTH / NUM_SURFACE_SEGMENTS) * i; const y = FLUID_Y + waveAmplitude * Math.sin(waveFrequency * x + wavePhase); waterSurfacePoints.push({ x: x, y: y }); } }
+
+    // --- Intersection Helper Functions (Unchanged) ---
+    function getRaySegmentIntersection(rayOrigin, rayDirection, segP1, segP2) { const v1=rayOrigin; const rayLineEnd=add(rayOrigin, scale(rayDirection, RAY_LENGTH_LIMIT*2)); const v2=rayLineEnd; const v3=segP1; const v4=segP2; const dx_ray=v2.x-v1.x; const dy_ray=v2.y-v1.y; const dx_seg=v4.x-v3.x; const dy_seg=v4.y-v3.y; const denominator=dy_seg*dx_ray-dx_seg*dy_ray; if (Math.abs(denominator) < INTERSECTION_EPSILON) return null; const dx_start=v1.x-v3.x; const dy_start=v1.y-v3.y; const t_num=dx_seg*dy_start-dy_seg*dx_start; const u_num=dx_ray*dy_start-dy_ray*dx_start; const t_line=t_num/denominator; const u_seg=u_num/denominator; const t=t_line*RAY_LENGTH_LIMIT*2; if (t > INTERSECTION_EPSILON && u_seg >= -INTERSECTION_EPSILON && u_seg <= 1+INTERSECTION_EPSILON) { const intersectionPoint = add(v1, scale(rayDirection, t)); return { point: intersectionPoint, t: t, u: u_seg }; } return null; }
+    function getRayBoundaryIntersection(rayOrigin, rayDirection, currentMedium) { if (!isWavy) { const movingTowardsBoundary = (currentMedium === 'air' && rayDirection.y > INTERSECTION_EPSILON) || (currentMedium === 'fluid' && rayDirection.y < -INTERSECTION_EPSILON); if (!movingTowardsBoundary || Math.abs(rayDirection.y) < INTERSECTION_EPSILON) return null; const t = (FLUID_Y - rayOrigin.y) / rayDirection.y; if (t > INTERSECTION_EPSILON) { const intersectionPoint = add(rayOrigin, scale(rayDirection, t)); if (intersectionPoint.x >= -WIDTH*0.5 && intersectionPoint.x <= WIDTH*1.5) { return { type: 'boundary', point: intersectionPoint, t: t, segmentIndex: -1 }; } } return null; } else { let closestIntersection=null; let t_min=RAY_LENGTH_LIMIT; for (let i=0; i < NUM_SURFACE_SEGMENTS; i++) { const p1=waterSurfacePoints[i]; const p2=waterSurfacePoints[i+1]; const intersection=getRaySegmentIntersection(rayOrigin, rayDirection, p1, p2); if (intersection && intersection.t < t_min) { const segmentVector=subtract(p2, p1); let normalTowardsAir = normalize({ x: -segmentVector.y, y: segmentVector.x }); const ray_dot_normal = dot(rayDirection, normalTowardsAir); const hittingFluidSideFromAir = (currentMedium === 'air' && ray_dot_normal < -INTERSECTION_EPSILON); const hittingAirSideFromFluid = (currentMedium === 'fluid' && ray_dot_normal > INTERSECTION_EPSILON); if (hittingFluidSideFromAir || hittingAirSideFromFluid) { closestIntersection = { type: 'boundary', point: intersection.point, t: intersection.t, segmentIndex: i }; t_min=intersection.t; } } } return closestIntersection; } }
+
+    // --- Physics Functions (Unchanged) ---
+    function reflectVector(incidentVector, normalVector) { const dot_in_n=dot(incidentVector, normalVector); return subtract(incidentVector, scale(normalVector, 2*dot_in_n)); }
+    function refractVector(incidentVector, normalVector, n1, n2) { const n_ratio=n1/n2; let cosTheta1 = -dot(incidentVector, normalVector); if (cosTheta1 < INTERSECTION_EPSILON) { return reflectVector(incidentVector, normalVector); } if (cosTheta1 > 1.0) cosTheta1=1.0; const sinTheta1_squared=1.0-cosTheta1*cosTheta1; const sinTheta2_squared=n_ratio*n_ratio*sinTheta1_squared; if (sinTheta2_squared > 1.0) { return reflectVector(incidentVector, normalVector); } const cosTheta2=Math.sqrt(1.0 - sinTheta2_squared); const term1=scale(incidentVector, n_ratio); const term2_scale=(n_ratio*cosTheta1)-cosTheta2; const term2=scale(normalVector, term2_scale); return normalize(add(term1, term2)); }
+
+    // --- Ray Tracing Function ---
+    function traceRay(origin, direction, medium, reflectionsLeft) {
+        if (reflectionsLeft < 0) {
+             const endPoint = add(origin, scale(direction, RAY_LENGTH_LIMIT));
+             drawRaySegment(origin, endPoint); return;
+        }
+
+        let closestIntersection = null; let t_min = RAY_LENGTH_LIMIT;
+
+        // 1. Check boundary intersection (Always check)
+        const boundaryIntersection=getRayBoundaryIntersection(origin, direction, medium);
+        if (boundaryIntersection && boundaryIntersection.t < t_min) {
+            closestIntersection=boundaryIntersection; t_min=closestIntersection.t;
+        }
+
+        // 2. Check mirror intersections ONLY if mirrors are enabled
+        if (areMirrorsEnabled) {
+            for (let i=0; i < mirrors.length; i++) {
+                const intersection=getRaySegmentIntersection(origin, direction, mirrors[i].p1, mirrors[i].p2);
+                if (intersection && intersection.t < t_min) {
+                    closestIntersection = { type: 'mirror', point: intersection.point, t: intersection.t, mirrorIndex: i };
+                    t_min=intersection.t;
+                }
+            }
+        } // End of mirror check block
+
+        // Process the closest intersection
+        if (closestIntersection) {
+            const intersectPoint=closestIntersection.point;
+            drawRaySegment(origin, intersectPoint); // Draw segment to intersection
+
+            if (closestIntersection.type === 'boundary') {
+                // Boundary logic remains the same...
+                const currentN=(medium === 'air') ? N_AIR : N_FLUID; const nextMedium=(medium === 'air') ? 'fluid' : 'air'; const nextN=(nextMedium === 'fluid') ? N_FLUID : N_AIR; let boundaryNormal; if (!isWavy) { boundaryNormal={ x: 0, y: (medium === 'air') ? 1 : -1 }; } else { const segmentIndex=closestIntersection.segmentIndex; const p1=waterSurfacePoints[segmentIndex]; const p2=waterSurfacePoints[segmentIndex+1]; const segmentVector=subtract(p2, p1); let normalTowardsAir = normalize({ x: -segmentVector.y, y: segmentVector.x }); boundaryNormal = (medium === 'air') ? scale(normalTowardsAir, -1) : normalTowardsAir; } if (dot(direction, boundaryNormal) > -INTERSECTION_EPSILON) { boundaryNormal=scale(boundaryNormal, -1); } const nextDirection=refractVector(direction, boundaryNormal, currentN, nextN); const reflected=dot(nextDirection, boundaryNormal) > INTERSECTION_EPSILON; const reflectionsRemaining=reflected ? reflectionsLeft - 1 : reflectionsLeft; const nextMediumFinal=reflected ? medium : nextMedium; traceRay(intersectPoint, nextDirection, nextMediumFinal, reflectionsRemaining);
+            } else if (closestIntersection.type === 'mirror') {
+                // This block is only reached if areMirrorsEnabled was true
+                const mirror=mirrors[closestIntersection.mirrorIndex];
+                const mirrorVector=subtract(mirror.p2, mirror.p1);
+                let mirrorNormal=normalize({ x: -mirrorVector.y, y: mirrorVector.x });
+                if (dot(direction, mirrorNormal) > -INTERSECTION_EPSILON) { mirrorNormal=scale(mirrorNormal, -1); }
+                const reflectedDirection=reflectVector(direction, mirrorNormal);
+                traceRay(intersectPoint, reflectedDirection, medium, reflectionsLeft - 1);
+            }
+        } else { // No intersection found
+            const endPoint = add(origin, scale(direction, RAY_LENGTH_LIMIT));
+            drawRaySegment(origin, endPoint);
+        }
+    }
+
+    // --- Drawing Functions ---
+    function drawRaySegment(p1, p2) { ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.strokeStyle = COLOR_RAYS; ctx.lineWidth = 1.5; ctx.stroke(); }
+
+    function drawScene(elapsedTime = 0) {
+        ctx.clearRect(0, 0, WIDTH, HEIGHT);
+        // Update & Draw background/boundary
+        if (isWavy) { updateWaterSurface(elapsedTime); } else { waterSurfacePoints.length = 0; for (let i=0; i <= NUM_SURFACE_SEGMENTS; i++) { waterSurfacePoints.push({ x: (WIDTH/NUM_SURFACE_SEGMENTS)*i, y: FLUID_Y }); } }
+        ctx.fillStyle = COLOR_BACKGROUND_FLUID; ctx.beginPath(); ctx.moveTo(0, HEIGHT); ctx.lineTo(WIDTH, HEIGHT); ctx.lineTo(waterSurfacePoints[NUM_SURFACE_SEGMENTS].x, waterSurfacePoints[NUM_SURFACE_SEGMENTS].y); for (let i = NUM_SURFACE_SEGMENTS - 1; i >= 0; i--) { ctx.lineTo(waterSurfacePoints[i].x, waterSurfacePoints[i].y); } ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(waterSurfacePoints[0].x, waterSurfacePoints[0].y); for (let i = 1; i <= NUM_SURFACE_SEGMENTS; i++) { ctx.lineTo(waterSurfacePoints[i].x, waterSurfacePoints[i].y); } ctx.strokeStyle = COLOR_BOUNDARY; ctx.lineWidth = 2; ctx.stroke();
+
+        // Draw Mirrors ONLY if enabled
+        if (areMirrorsEnabled) {
+            ctx.strokeStyle = COLOR_MIRRORS; ctx.lineWidth = 3; ctx.lineCap = 'round';
+            mirrors.forEach(mirror => { ctx.beginPath(); ctx.moveTo(mirror.p1.x, mirror.p1.y); ctx.lineTo(mirror.p2.x, mirror.p2.y); ctx.stroke(); });
+            ctx.lineCap = 'butt';
+        }
+
+        // Trace and draw rays
+        const initialMedium = (sourceY < FLUID_Y) ? 'air' : 'fluid';
+        const angleStep = (2 * Math.PI) / NUM_RAYS;
+        for (let i = 0; i < NUM_RAYS; i++) {
+            const angle = i * angleStep;
+            const initialDirection = normalize({ x: Math.cos(angle), y: Math.sin(angle) });
+            traceRay({ x: sourceX, y: sourceY }, initialDirection, initialMedium, MAX_REFLECTIONS);
+        }
+
+        // Draw source
+        ctx.beginPath(); ctx.arc(sourceX, sourceY, SOURCE_RADIUS, 0, Math.PI*2); ctx.fillStyle = COLOR_SOURCE; ctx.fill(); ctx.strokeStyle = COLOR_INTERACTION_BORDER; ctx.lineWidth = 1.5; ctx.stroke();
+    }
+
+    // --- Animation Loop ---
+    let startTime = null;
+    function render(timestamp) { if (!startTime) startTime = timestamp; const elapsedTime = timestamp - startTime; drawScene(elapsedTime); requestAnimationFrame(render); }
+
+    // --- Mouse Event Handlers ---
+    canvas.addEventListener('mousedown', (event) => {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = event.clientX - rect.left;
+        const mouseY = event.clientY - rect.top;
+        dragStartMouseX = mouseX; dragStartMouseY = mouseY;
+
+        // Check Source Drag
+        if (distSq({ x: mouseX, y: mouseY }, { x: sourceX, y: sourceY }) < ENDPOINT_SELECT_THRESHOLD_SQ) {
+            currentInteractionState = InteractionState.DRAGGING_SOURCE;
+            dragOffsetX = mouseX - sourceX; dragOffsetY = mouseY - sourceY;
+            canvas.style.cursor = 'grabbing'; event.preventDefault(); return;
+        }
+
+        // Check Mirror Interaction ONLY if mirrors are enabled
+        if (areMirrorsEnabled) {
+            selectedMirrorIndex = -1; rotatingEndpoint = null;
+            // Check Endpoints first
+            for (let i = 0; i < mirrors.length; i++) {
+                const mirror = mirrors[i];
+                if (distSq({ x: mouseX, y: mouseY }, mirror.p1) < ENDPOINT_SELECT_THRESHOLD_SQ) { selectedMirrorIndex = i; rotatingEndpoint = 'p1'; break; }
+                if (distSq({ x: mouseX, y: mouseY }, mirror.p2) < ENDPOINT_SELECT_THRESHOLD_SQ) { selectedMirrorIndex = i; rotatingEndpoint = 'p2'; break; }
+            }
+            // If endpoint clicked, handle rotation
+            if (selectedMirrorIndex !== -1 && rotatingEndpoint) {
+                currentInteractionState = InteractionState.ROTATING_MIRROR; const mirror = mirrors[selectedMirrorIndex]; mirrorStartAngle = mirror.angle; dragStartMouseAngleFromCenter = Math.atan2(dragStartMouseY - mirror.center.y, dragStartMouseX - mirror.center.x); canvas.style.cursor = 'crosshair'; event.preventDefault(); return;
+            }
+            // If no endpoint clicked, check segments for drag
+            else {
+                for (let i = 0; i < mirrors.length; i++) {
+                    const mirror = mirrors[i];
+                    if (distToSegmentSquared({ x: mouseX, y: mouseY }, mirror.p1, mirror.p2) < MIRROR_SELECT_THRESHOLD_SQ) { selectedMirrorIndex = i; break; }
+                }
+                if (selectedMirrorIndex !== -1) { // Segment clicked
+                    currentInteractionState = InteractionState.DRAGGING_MIRROR; rotatingEndpoint = null; const mirror = mirrors[selectedMirrorIndex]; dragMirrorOffsetX = mouseX - mirror.center.x; dragMirrorOffsetY = mouseY - mirror.center.y; canvas.style.cursor = 'grabbing'; event.preventDefault(); return;
+                }
+            }
+        } // End of mirror interaction check
+
+        // Clicked neither source nor enabled mirror
+        currentInteractionState = InteractionState.IDLE; selectedMirrorIndex = -1; rotatingEndpoint = null;
+    });
+
+    canvas.addEventListener('mousemove', (event) => {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = event.clientX - rect.left;
+        const mouseY = event.clientY - rect.top;
+
+        // Handle dragging/rotating ONLY if mirrors are enabled
+        if (currentInteractionState === InteractionState.DRAGGING_SOURCE) {
+             sourceX = Math.max(-WIDTH*0.1, Math.min(WIDTH*1.1, mouseX - dragOffsetX));
+             sourceY = Math.max(-HEIGHT*0.1, Math.min(HEIGHT*1.1, mouseY - dragOffsetY));
+        } else if (areMirrorsEnabled && currentInteractionState === InteractionState.DRAGGING_MIRROR && selectedMirrorIndex !== -1) {
+            const mirror = mirrors[selectedMirrorIndex]; mirror.center.x = mouseX - dragMirrorOffsetX; mirror.center.y = mouseY - dragMirrorOffsetY; updateMirrorEndpoints(mirror);
+        } else if (areMirrorsEnabled && currentInteractionState === InteractionState.ROTATING_MIRROR && selectedMirrorIndex !== -1 && rotatingEndpoint) {
+            const mirror = mirrors[selectedMirrorIndex]; const currentMouseAngleFromCenter = Math.atan2(mouseY - mirror.center.y, mouseX - mirror.center.x); mirror.angle = mirrorStartAngle + (currentMouseAngleFromCenter - dragStartMouseAngleFromCenter); updateMirrorEndpoints(mirror);
+        }
+        // Update hover cursor state
+        else if (currentInteractionState === InteractionState.IDLE) {
+             let hoverCursor = 'default';
+             if (distSq({ x: mouseX, y: mouseY }, { x: sourceX, y: sourceY }) < ENDPOINT_SELECT_THRESHOLD_SQ) {
+                 hoverCursor = 'grab';
+             }
+             // Check mirror hover ONLY if mirrors are enabled
+             else if (areMirrorsEnabled) {
+                 for (const mirror of mirrors) {
+                     if (distSq({ x: mouseX, y: mouseY }, mirror.p1) < ENDPOINT_SELECT_THRESHOLD_SQ || distSq({ x: mouseX, y: mouseY }, mirror.p2) < ENDPOINT_SELECT_THRESHOLD_SQ) { hoverCursor = 'crosshair'; break; }
+                     if (distToSegmentSquared({ x: mouseX, y: mouseY }, mirror.p1, mirror.p2) < MIRROR_SELECT_THRESHOLD_SQ) { hoverCursor = 'grab'; break; }
+                 }
+             }
+             canvas.style.cursor = hoverCursor;
+        }
+    });
+
+    const stopInteraction = () => { if (currentInteractionState !== InteractionState.IDLE) { currentInteractionState = InteractionState.IDLE; selectedMirrorIndex = -1; rotatingEndpoint = null; } };
+    canvas.addEventListener('mouseup', stopInteraction); canvas.addEventListener('mouseout', stopInteraction);
+
+
+    // --- Input Event Listeners ---
+    n1Input.addEventListener('input', (event) => { const newValue = parseFloat(event.target.value); if (!isNaN(newValue) && newValue >= 1.0) { N_AIR = newValue; } else { event.target.value = N_AIR.toFixed(2); } });
+    n2Input.addEventListener('input', (event) => { const newValue = parseFloat(event.target.value); if (!isNaN(newValue) && newValue >= 1.0) { N_FLUID = newValue; } else { event.target.value = N_FLUID.toFixed(2); } });
+    waveToggle.addEventListener('change', () => { isWavy = waveToggle.checked; if (!isWavy) { updateWaterSurface(0); } });
+    waveSpeedInput.addEventListener('input', (event) => { const newValue = parseFloat(event.target.value); const minSpeed=0; const maxSpeed=0.1; if (!isNaN(newValue) && newValue >= minSpeed && newValue <= maxSpeed) { waveSpeed = newValue; } else { waveSpeed = Math.max(minSpeed, Math.min(maxSpeed, waveSpeed)); event.target.value = waveSpeed.toFixed(3); } });
+    raysSlider.addEventListener('input', (event) => { const newValue = parseInt(event.target.value, 10); NUM_RAYS = newValue; raysValueDisplay.textContent = newValue; });
+
+    // Listener for the NEW Mirror Toggle
+    mirrorsToggle.addEventListener('change', (event) => {
+        areMirrorsEnabled = event.target.checked;
+        // Update info text visibility based on mirror state
+        mirrorDragInfo.style.display = areMirrorsEnabled ? 'inline' : 'none';
+        // If disabling mirrors while interacting with one, stop interaction
+        if (!areMirrorsEnabled && (currentInteractionState === InteractionState.DRAGGING_MIRROR || currentInteractionState === InteractionState.ROTATING_MIRROR)) {
+            stopInteraction();
+        }
+    });
+
+
+    // --- Initial Setup & Start ---
+    mirrorDragInfo.style.display = areMirrorsEnabled ? 'inline' : 'none'; // Set initial info text state
+    updateWaterSurface(0);
+    requestAnimationFrame(render);
+
+</script>
+
+</body>
+</html>
