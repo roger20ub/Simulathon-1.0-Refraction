@@ -218,9 +218,47 @@
     // --- Update Wave Surface Function (Unchanged) ---
     function updateWaterSurface(elapsedTime) { wavePhase = waveSpeed * elapsedTime; waterSurfacePoints.length = 0; for (let i = 0; i <= NUM_SURFACE_SEGMENTS; i++) { const x = (WIDTH / NUM_SURFACE_SEGMENTS) * i; const y = FLUID_Y + waveAmplitude * Math.sin(waveFrequency * x + wavePhase); waterSurfacePoints.push({ x: x, y: y }); } }
 
-    // --- Intersection Helper Functions (Unchanged) ---
+    // --- Intersection Helper Functions ---
     function getRaySegmentIntersection(rayOrigin, rayDirection, segP1, segP2) { const v1=rayOrigin; const rayLineEnd=add(rayOrigin, scale(rayDirection, RAY_LENGTH_LIMIT*2)); const v2=rayLineEnd; const v3=segP1; const v4=segP2; const dx_ray=v2.x-v1.x; const dy_ray=v2.y-v1.y; const dx_seg=v4.x-v3.x; const dy_seg=v4.y-v3.y; const denominator=dy_seg*dx_ray-dx_seg*dy_ray; if (Math.abs(denominator) < INTERSECTION_EPSILON) return null; const dx_start=v1.x-v3.x; const dy_start=v1.y-v3.y; const t_num=dx_seg*dy_start-dy_seg*dx_start; const u_num=dx_ray*dy_start-dy_ray*dx_start; const t_line=t_num/denominator; const u_seg=u_num/denominator; const t=t_line*RAY_LENGTH_LIMIT*2; if (t > INTERSECTION_EPSILON && u_seg >= -INTERSECTION_EPSILON && u_seg <= 1+INTERSECTION_EPSILON) { const intersectionPoint = add(v1, scale(rayDirection, t)); return { point: intersectionPoint, t: t, u: u_seg }; } return null; }
-    function getRayBoundaryIntersection(rayOrigin, rayDirection, currentMedium) { if (!isWavy) { const movingTowardsBoundary = (currentMedium === 'air' && rayDirection.y > INTERSECTION_EPSILON) || (currentMedium === 'fluid' && rayDirection.y < -INTERSECTION_EPSILON); if (!movingTowardsBoundary || Math.abs(rayDirection.y) < INTERSECTION_EPSILON) return null; const t = (FLUID_Y - rayOrigin.y) / rayDirection.y; if (t > INTERSECTION_EPSILON) { const intersectionPoint = add(rayOrigin, scale(rayDirection, t)); if (intersectionPoint.x >= -WIDTH*0.5 && intersectionPoint.x <= WIDTH*1.5) { return { type: 'boundary', point: intersectionPoint, t: t, segmentIndex: -1 }; } } return null; } else { let closestIntersection=null; let t_min=RAY_LENGTH_LIMIT; for (let i=0; i < NUM_SURFACE_SEGMENTS; i++) { const p1=waterSurfacePoints[i]; const p2=waterSurfacePoints[i+1]; const intersection=getRaySegmentIntersection(rayOrigin, rayDirection, p1, p2); if (intersection && intersection.t < t_min) { const segmentVector=subtract(p2, p1); let normalTowardsAir = normalize({ x: -segmentVector.y, y: segmentVector.x }); const ray_dot_normal = dot(rayDirection, normalTowardsAir); const hittingFluidSideFromAir = (currentMedium === 'air' && ray_dot_normal < -INTERSECTION_EPSILON); const hittingAirSideFromFluid = (currentMedium === 'fluid' && ray_dot_normal > INTERSECTION_EPSILON); if (hittingFluidSideFromAir || hittingAirSideFromFluid) { closestIntersection = { type: 'boundary', point: intersection.point, t: intersection.t, segmentIndex: i }; t_min=intersection.t; } } } return closestIntersection; } }
+    function getRayBoundaryIntersection(rayOrigin, rayDirection, currentMedium) {
+        if (!isWavy) {
+            const movingTowardsBoundary = (currentMedium === 'air' && rayDirection.y > INTERSECTION_EPSILON) || (currentMedium === 'fluid' && rayDirection.y < -INTERSECTION_EPSILON);
+            if (!movingTowardsBoundary || Math.abs(rayDirection.y) < INTERSECTION_EPSILON) return null;
+            const t = (FLUID_Y - rayOrigin.y) / rayDirection.y;
+            if (t > INTERSECTION_EPSILON) {
+                const intersectionPoint = add(rayOrigin, scale(rayDirection, t));
+                if (intersectionPoint.x >= -WIDTH*0.5 && intersectionPoint.x <= WIDTH*1.5) {
+                    return { type: 'boundary', point: intersectionPoint, t: t, segmentIndex: -1 };
+                }
+            }
+            return null;
+        } else {
+            let closestIntersection=null;
+            let t_min=RAY_LENGTH_LIMIT;
+            for (let i=0; i < NUM_SURFACE_SEGMENTS; i++) {
+                const p1=waterSurfacePoints[i];
+                const p2=waterSurfacePoints[i+1];
+                const intersection=getRaySegmentIntersection(rayOrigin, rayDirection, p1, p2);
+
+                if (intersection && intersection.t < t_min) {
+                    const segmentVector=subtract(p2, p1);
+                    let normalTowardsAir = normalize({ x: -segmentVector.y, y: segmentVector.x }); // This normal points generally upwards, perpendicular to segment
+
+                    const ray_dot_normal_towards_air = dot(rayDirection, normalTowardsAir);
+
+                    // Corrected conditions: Check if the ray is moving towards the 'other' medium's side of the boundary segment
+                    const hittingFluidSideFromAir = (currentMedium === 'air' && ray_dot_normal_towards_air > INTERSECTION_EPSILON); // Ray from air going 'down' towards the fluid side
+                    const hittingAirSideFromFluid = (currentMedium === 'fluid' && ray_dot_normal_towards_air < -INTERSECTION_EPSILON); // Ray from fluid going 'up' towards the air side
+
+                    if (hittingFluidSideFromAir || hittingAirSideFromFluid) {
+                        closestIntersection = { type: 'boundary', point: intersection.point, t: intersection.t, segmentIndex: i };
+                        t_min=intersection.t;
+                    }
+                }
+            }
+            return closestIntersection;
+        }
+    }
 
     // --- Physics Functions (Unchanged) ---
     function reflectVector(incidentVector, normalVector) { const dot_in_n=dot(incidentVector, normalVector); return subtract(incidentVector, scale(normalVector, 2*dot_in_n)); }
@@ -258,8 +296,46 @@
             drawRaySegment(origin, intersectPoint); // Draw segment to intersection
 
             if (closestIntersection.type === 'boundary') {
-                // Boundary logic remains the same...
-                const currentN=(medium === 'air') ? N_AIR : N_FLUID; const nextMedium=(medium === 'air') ? 'fluid' : 'air'; const nextN=(nextMedium === 'fluid') ? N_FLUID : N_AIR; let boundaryNormal; if (!isWavy) { boundaryNormal={ x: 0, y: (medium === 'air') ? 1 : -1 }; } else { const segmentIndex=closestIntersection.segmentIndex; const p1=waterSurfacePoints[segmentIndex]; const p2=waterSurfacePoints[segmentIndex+1]; const segmentVector=subtract(p2, p1); let normalTowardsAir = normalize({ x: -segmentVector.y, y: segmentVector.x }); boundaryNormal = (medium === 'air') ? scale(normalTowardsAir, -1) : normalTowardsAir; } if (dot(direction, boundaryNormal) > -INTERSECTION_EPSILON) { boundaryNormal=scale(boundaryNormal, -1); } const nextDirection=refractVector(direction, boundaryNormal, currentN, nextN); const reflected=dot(nextDirection, boundaryNormal) > INTERSECTION_EPSILON; const reflectionsRemaining=reflected ? reflectionsLeft - 1 : reflectionsLeft; const nextMediumFinal=reflected ? medium : nextMedium; traceRay(intersectPoint, nextDirection, nextMediumFinal, reflectionsRemaining);
+                const currentN=(medium === 'air') ? N_AIR : N_FLUID;
+                const nextMedium=(medium === 'air') ? 'fluid' : 'air';
+                const nextN=(nextMedium === 'fluid') ? N_FLUID : N_AIR;
+                let boundaryNormal;
+
+                if (!isWavy) {
+                    // Flat boundary: Normal points into the *next* medium
+                     boundaryNormal={ x: 0, y: (medium === 'air') ? 1 : -1 };
+                } else {
+                    const segmentIndex=closestIntersection.segmentIndex;
+                    const p1=waterSurfacePoints[segmentIndex];
+                    const p2=waterSurfacePoints[segmentIndex+1];
+                    const segmentVector=subtract(p2, p1);
+                    let normalTowardsAir = normalize({ x: -segmentVector.y, y: segmentVector.x }); // This normal points generally upwards, perpendicular to segment
+
+                    // Determine if the ray is entering fluid or air and set normal to point into the *next* medium
+                    if (medium === 'air') { // Ray is entering fluid
+                         boundaryNormal = scale(normalTowardsAir, -1); // Normal points into fluid (next medium)
+                    } else { // medium === 'fluid', ray is entering air
+                         boundaryNormal = normalTowardsAir; // Normal points into air (next medium)
+                    }
+                }
+
+                // Ensure the normal passed to refractVector points AGAINST the incident direction.
+                // This aligns with how refractVector calculates cosTheta1 = -dot(incident, normal).
+                 if (dot(direction, boundaryNormal) > -INTERSECTION_EPSILON) {
+                     boundaryNormal=scale(boundaryNormal, -1);
+                 }
+
+                const nextDirection=refractVector(direction, boundaryNormal, currentN, nextN);
+
+                // Determine if total internal reflection occurred
+                // Check if the next direction is on the same side of the boundary normal as the incident direction
+                const reflected = (dot(nextDirection, boundaryNormal) * dot(direction, boundaryNormal)) > 0;
+
+                const reflectionsRemaining=reflected ? reflectionsLeft - 1 : reflectionsLeft;
+                const nextMediumFinal=reflected ? medium : nextMedium;
+
+                traceRay(intersectPoint, nextDirection, nextMediumFinal, reflectionsRemaining);
+
             } else if (closestIntersection.type === 'mirror') {
                 // This block is only reached if areMirrorsEnabled was true
                 const mirror=mirrors[closestIntersection.mirrorIndex];
@@ -334,7 +410,7 @@
             }
             // If endpoint clicked, handle rotation
             if (selectedMirrorIndex !== -1 && rotatingEndpoint) {
-                currentInteractionState = InteractionState.ROTATING_MIRROR; const mirror = mirrors[selectedMirrorIndex]; mirrorStartAngle = mirror.angle; dragStartMouseAngleFromCenter = Math.atan2(dragStartMouseY - mirror.center.y, dragStartMouseX - mirror.center.x); canvas.style.cursor = 'crosshair'; event.preventDefault(); return;
+                currentInteractionState = InteractionState.ROTATING_MIRROR; const mirror = mirrors[selectedMirrorIndex]; mirrorStartAngle = mirror.angle; dragStartMouseAngleFromCenter = Math.atan2(mouseY - mirror.center.y, mouseX - mirror.center.x); canvas.style.cursor = 'crosshair'; event.preventDefault(); return;
             }
             // If no endpoint clicked, check segments for drag
             else {
